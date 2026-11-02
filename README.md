@@ -9,7 +9,7 @@ A Python application that gamifies habit building. Instead of just checking off 
 *   **Evolution System:** The pet evolves through multiple life stages (Egg, Baby, etc.) based on accumulated EXP.
 *   **State Management:** The pet has dynamic stats (Health, EXP, Status).
 *   **Data Persistence:** *(If you used file I/O or JSON to save progress, mention it here!)*
-*   **Interactive Care System** Users can play with and feed their pet to increase it's happiness stat.
+*   **Interactive Care System:** Users can play with and feed their pet to increase it's happiness stat.
 
 ## Tech Stack
 *   **Language:** Python 3
