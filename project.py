@@ -1,132 +1,68 @@
-#libraries
 import json
-import sys
 from datetime import date, timedelta
 
+
 class Habit:
-    #storing data for each habit
-    def __init__(self, name, history=None):
-        self.name = name
-        self.history = history if history else []
+    def __init__(self, name, history=None, created_on=None):
+        self.name = name.strip()
+        self.history = history if history is not None else []
+        self.created_on = created_on or date.today().isoformat()
+
     def to_data(self):
         return {
             "name": self.name,
-            "history": self.history
-        }   
+            "history": self.history,
+            "created_on": self.created_on,
+        }
+
     def get_stats(self):
+        # Ignore duplicate dates so they don't inflate streaks or completion.
+        dates = sorted({
+            date.fromisoformat(day)
+            for day in self.history
+            if date.fromisoformat(day) <= date.today()
+        })
+
         longest_streak = 0
-        current_streak = 0
-        history_dates = [date.fromisoformat(d) for d in self.history]
-        sorted_history = sorted(history_dates)
-        for i in range(len(sorted_history)):
-            if i == 0 or (sorted_history[i] - sorted_history[i - 1]).days == 1:
-                current_streak += 1
+        streak = 0
+        previous = None
+
+        for day in dates:
+            if previous is not None and (day - previous).days == 1:
+                streak += 1
             else:
-                current_streak = 1
-            longest_streak = max(longest_streak, current_streak)
+                streak = 1
 
-        # Check if today or yesterday is in the history to determine the current streak
+            longest_streak = max(longest_streak, streak)
+            previous = day
+
         today = date.today()
-        yesterday = today - timedelta(days=1)
-        if today in sorted_history:
-            check_date = today
-        elif yesterday in sorted_history:
-            check_date = yesterday
-        else:
-            check_date = 0
-
-        # Calculate the current streak based on the last checked date
         current_streak = 0
-        if check_date:
-            for d in reversed(sorted_history):
-                if d == check_date:
+
+        if dates and dates[-1] in (today, today - timedelta(days=1)):
+            expected = dates[-1]
+            for day in reversed(dates):
+                if day == expected:
                     current_streak += 1
-                    check_date -= timedelta(days=1)
-                elif d < check_date:
+                    expected -= timedelta(days=1)
+                else:
                     break
 
-        # Calculate completion rate
-        if self.history:
-            first_date = sorted_history[0]
-            today = date.today()
-            total_days_since_start = (today - first_date).days + 1
-            completion_rate = (len(self.history) / total_days_since_start) * 100
+        if dates:
+            start = date.fromisoformat(self.created_on)
+            total_days = max(1, (today - start).days + 1)
+            completion_rate = len(dates) / total_days * 100
         else:
             completion_rate = 0
+
         return {
-            "current_streak": current_streak, #returning current streak
-            "longest_streak": longest_streak, #returning longest streak
-            "completion_rate": completion_rate #returning completion rate
+            "current_streak": current_streak,
+            "longest_streak": longest_streak,
+            "completion_rate": min(completion_rate, 100),
         }
-class HabitTracker:
-    def __init__(self):
-        self.habits = []
-        self.pet = Pet("Nebula")
 
-    def check_penalies(self):
-        today_str = date.today().isoformat()
 
-        if self.pet.last_penalty_date == today_str:
-            return  # Already checked penalties today
-
-        today = date.today()
-        penalty_applied = False
-
-        for habit in self.habits:
-            if habit.history:
-                last_checkin_date = date.fromisoformat(habit.history[-1])
-                if (today - last_checkin_date).days > 1:
-                    self.pet.lose_hp(20)  # Apply penalty for missed habit
-                    penalty_applied = True
-                    print(f"Penalty applied for habit '{habit.name}' due to missed check-ins.")
-            else:
-                print(f"You haven't checked in for habit '{habit.name}' yet. Your pet will lose HP.")
-                self.pet.lose_hp(20)  # Lose 20 HP if the habit has never been checked in
-                penalty_applied = True
-        if penalty_applied:
-            self.pet.last_penalty_date = today_str  # Update the last penalty date
-            print(f"You got a penalty. {self.pet.name}'s current HP: {self.pet.hp}.")
-
-    # Add a habit to the tracker
-    def add_habit(self, habit):
-        self.habits.append(habit)
-
-    # Remove a habit from the tracker by name
-    def remove_habit(self, habit_name):
-        self.habits = [habit for habit in self.habits if habit.name != habit_name]
-
-    # Get the list of habits
-    def get_habits(self):
-        return self.habits
-
-    # Save the habits and pet data to a JSON file
-    def save_to_file(self, filename):
-        data = {"habits": [habit.to_data() for habit in self.habits], "pet": self.pet.to_data()}
-        with open(filename, 'w') as file:
-            json.dump(data, file)
-
-    # Load the habits and pet data from a JSON file
-    def load_from_file(self, filename):
-        try:
-            with open(filename, 'r') as file:
-                data = json.load(file)
-                self.habits = [Habit(habit_data["name"], habit_data["history"]) for habit_data in data["habits"]]
-                if "pet" in data:
-                    pet_data = data["pet"]
-                    self.pet = Pet(pet_data["name"])
-                    self.pet.stage = pet_data["stage"]
-                    self.pet.hp = pet_data["hp"]
-                    self.pet.xp = pet_data["xp"]
-                    self.pet.is_alive = pet_data["is_alive"]
-                    self.pet.happiness = pet_data["happiness"]
-                    self.pet.last_penalty_date = pet_data["last_penalty_date"]
-                else:
-                    self.pet = Pet("Nebula")
-        except FileNotFoundError:
-            print(f"No existing habit data found in {filename}. Starting fresh.")
-            self.pet = Pet("Nebula")
 class Pet:
-    #storing data for the pet
     def __init__(self, name):
         self.name = name
         self.stage = "egg"
@@ -158,15 +94,16 @@ class Pet:
             print("Status: CRITICAL 🤒. LOCK IN.")
         else:
             print("Status: ALIVE and HAPPY 😀. Good job!")
+
     def lose_hp(self, amount):
-        self.hp -= amount
-        if self.hp <= 0:
-            self.hp = 0
+        self.hp = max(0, self.hp - amount)
+
+        if self.hp == 0:
             self.is_alive = False
             print(f"{self.name} has died.")
             print("Game Over. All habits will be reset. Your actions have consequences.")
         else:
-            print(f"{self.name} lost {amount} HP. Current HP: {self.hp}. What are you doing? Lock in.")
+            print(f"{self.name} lost {amount} HP. Current HP: {self.hp}.")
 
     def to_data(self):
         return {
@@ -176,40 +113,159 @@ class Pet:
             "xp": self.xp,
             "is_alive": self.is_alive,
             "happiness": self.happiness,
-            "last_penalty_date": self.last_penalty_date
+            "last_penalty_date": self.last_penalty_date,
         }
 
-    # Feed the pet to increase happiness
     def feed(self):
         self.happiness = min(100, self.happiness + 10)
         print(f"{self.name} has been fed. Happiness is now {self.happiness}.")
 
-    # Play with the pet to increase happiness
     def play(self):
         self.happiness = min(100, self.happiness + 15)
         print(f"You played with {self.name}. Happiness is now {self.happiness}.")
 
-    # Check the pet's happiness level
     def check_happiness(self):
         print(f"{self.name}'s happiness level is {self.happiness}.")
 
-    # Add experience points to the pet and check for level up
     def add_xp(self, amount):
+        if not self.is_alive:
+            print(f"{self.name} can't gain XP because it has died.")
+            return
+
         self.xp += amount
         print(f"{self.name} gained {amount} XP. Total XP is now {self.xp}.")
         self.check_level_up()
 
-    # Check if the pet has enough XP to level up and evolve
     def check_level_up(self):
-        if self.xp >= 100:
+        while self.xp >= 100:
             self.xp -= 100
-            self.stage = "baby"
-            print(f"Congrats, {self.name} has evolved into a baby!")
+
+            if self.stage == "egg":
+                self.stage = "baby"
+                print(f"Congrats, {self.name} has evolved into a baby!")
+            else:
+                print(f"{self.name} earned 100 XP!")
+
+
+class HabitTracker:
+    def __init__(self):
+        self.habits = []
+        self.pet = Pet("Nebula")
+
+    def check_penalties(self):
+        today = date.today()
+        today_str = today.isoformat()
+
+        if self.pet.last_penalty_date == today_str:
+            return
+
+        penalty_applied = False
+
+        for habit in self.habits:
+            if habit.history:
+                last_checkin = max(date.fromisoformat(day) for day in habit.history)
+                overdue = (today - last_checkin).days > 1
+            else:
+                created = date.fromisoformat(habit.created_on)
+                overdue = (today - created).days > 1
+
+            if overdue and self.pet.is_alive:
+                self.pet.lose_hp(20)
+                penalty_applied = True
+                print(f"Penalty applied for habit '{habit.name}'.")
+
+        # Record that today's penalty check has happened, even if no penalty applied.
+        self.pet.last_penalty_date = today_str
+
+        if penalty_applied:
+            print(f"{self.pet.name}'s current HP: {self.pet.hp}.")
+
+    def add_habit(self, habit):
+        if not habit.name:
+            print("Habit name can't be blank.")
+            return False
+
+        if any(existing.name.casefold() == habit.name.casefold()
+               for existing in self.habits):
+            print("A habit with that name already exists.")
+            return False
+
+        self.habits.append(habit)
+        return True
+
+    def remove_habit(self, habit_name):
+        before = len(self.habits)
+        self.habits = [
+            habit for habit in self.habits
+            if habit.name.casefold() != habit_name.strip().casefold()
+        ]
+        return len(self.habits) < before
+
+    def get_habits(self):
+        return self.habits
+
+    def save_to_file(self, filename):
+        data = {
+            "habits": [habit.to_data() for habit in self.habits],
+            "pet": self.pet.to_data(),
+        }
+
+        with open(filename, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+
+    def load_from_file(self, filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as file:
+                data = json.load(file)
+
+            self.habits = []
+            for habit_data in data.get("habits", []):
+                name = habit_data.get("name", "").strip()
+                if not name:
+                    continue
+
+                history = habit_data.get("history", [])
+                # Validate dates and discard duplicates.
+                valid_history = sorted({
+                    date.fromisoformat(day).isoformat()
+                    for day in history
+                })
+
+                created_on = habit_data.get("created_on")
+                if created_on:
+                    created_on = date.fromisoformat(created_on).isoformat()
+
+                self.habits.append(Habit(name, valid_history, created_on))
+
+            pet_data = data.get("pet")
+            if pet_data:
+                self.pet = Pet(pet_data.get("name", "Nebula"))
+                self.pet.stage = pet_data.get("stage", "egg")
+                self.pet.hp = max(0, min(100, int(pet_data.get("hp", 100))))
+                self.pet.xp = max(0, int(pet_data.get("xp", 0)))
+                self.pet.is_alive = bool(pet_data.get("is_alive", True))
+                self.pet.happiness = max(
+                    0, min(100, int(pet_data.get("happiness", 50)))
+                )
+                self.pet.last_penalty_date = pet_data.get(
+                    "last_penalty_date", ""
+                )
+            else:
+                self.pet = Pet("Nebula")
+
+        except FileNotFoundError:
+            print(f"No existing habit data found in {filename}. Starting fresh.")
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            print(f"Could not load {filename}: {error}")
+            print("Starting with fresh data.")
+            self.habits = []
+            self.pet = Pet("Nebula")
+
 
 def main():
     tracker = HabitTracker()
-    tracker.load_from_file('habits.json')
-    tracker.check_penalies()  # Check for missed habits and apply penalties
+    tracker.load_from_file("habits.json")
+    tracker.check_penalties()
 
     while True:
         print("\nHabit Tracker Menu:")
@@ -220,25 +276,26 @@ def main():
         print("5. Save and Exit")
         print("6. Check-in Habit")
         print("7. View Pet Status")
-        print("99. [Debug] Fast_forward by 100 xp")
-        print("98. Losing Hp")
-        choice = input("Enter your choice: ")
+        print("8. Feed Pet")
+        print("9. Play with Pet")
+        print("99. [Debug] Fast-forward by 100 XP")
+        print("98. [Debug] Lose HP")
 
-        # Add Habit
-        if choice == '1':
+        choice = input("Enter your choice: ").strip()
+
+        if choice == "1":
             habit_name = input("Enter the name of the habit: ")
-            habit = Habit(habit_name)
-            tracker.add_habit(habit)
-            print(f"Habit '{habit_name}' added.")
+            if tracker.add_habit(Habit(habit_name)):
+                print(f"Habit '{habit_name.strip()}' added.")
 
-        # Remove Habit
-        elif choice == '2':
+        elif choice == "2":
             habit_name = input("Enter the name of the habit to remove: ")
-            tracker.remove_habit(habit_name)
-            print(f"Habit '{habit_name}' removed.")
+            if tracker.remove_habit(habit_name):
+                print(f"Habit '{habit_name.strip()}' removed.")
+            else:
+                print(f"Habit '{habit_name.strip()}' not found.")
 
-        # View Habits
-        elif choice == '3':
+        elif choice == "3":
             habits = tracker.get_habits()
             if habits:
                 print("Current Habits:")
@@ -247,8 +304,7 @@ def main():
             else:
                 print("No habits found.")
 
-        # View Habit Stats
-        elif choice == '4':
+        elif choice == "4":
             habits = tracker.get_habits()
             if habits:
                 print("Habit Stats:")
@@ -261,37 +317,50 @@ def main():
             else:
                 print("No habits found.")
 
-        # Save and Exit
-        elif choice == '5':
-            tracker.save_to_file('habits.json')
+        elif choice == "5":
+            tracker.save_to_file("habits.json")
             print("Habits saved. Exiting.")
             break
 
-        # Check-in Habit
-        elif choice == '6':
-            habit_name = input("Enter the name of the habit to check-in: ")
-            habit = next((h for h in tracker.get_habits() if h.name == habit_name), None)
-            if habit:
-                today_str = date.today().isoformat()
-                if today_str not in habit.history:
-                    habit.history.append(today_str)
-                    print(f"Checked in for habit '{habit_name}' on {today_str}.")
-                    tracker.pet.add_xp(20) # Add XP to your pet for each action
-                else:
-                    print(f"You have already checked in for habit '{habit_name}' today.")
-            else:
+        elif choice == "6":
+            habit_name = input("Enter the name of the habit to check in: ").strip()
+            habit = next(
+                (h for h in tracker.get_habits()
+                 if h.name.casefold() == habit_name.casefold()),
+                None,
+            )
+
+            if habit is None:
                 print(f"Habit '{habit_name}' not found.")
+            elif not tracker.pet.is_alive:
+                print(f"{tracker.pet.name} has died. Check-ins won't earn XP.")
+            else:
+                today_str = date.today().isoformat()
+                if today_str in habit.history:
+                    print(f"You already checked in for '{habit.name}' today.")
+                else:
+                    habit.history.append(today_str)
+                    tracker.pet.add_xp(20)
+                    print(f"Checked in for '{habit.name}' on {today_str}.")
 
-        elif choice == '99':
-            tracker.pet.add_xp(100)
-            print(f"Debug: Added 100 XP to {tracker.pet.name}. Total XP is now {tracker.pet.xp}.")
-
-        elif choice == '98':
-            tracker.pet.lose_hp(30)
-            print(f"Debug: {tracker.pet.name} lost 30 HP. Current HP is now {tracker.pet.hp}.")
-
-        elif choice == '7':
+        elif choice == "7":
             tracker.pet.get_status()
+
+        elif choice == "8":
+            tracker.pet.feed()
+
+        elif choice == "9":
+            tracker.pet.play()
+
+        elif choice == "99":
+            tracker.pet.add_xp(100)
+
+        elif choice == "98":
+            tracker.pet.lose_hp(30)
+
+        else:
+            print("Invalid choice.")
+
 
 if __name__ == "__main__":
     main()
